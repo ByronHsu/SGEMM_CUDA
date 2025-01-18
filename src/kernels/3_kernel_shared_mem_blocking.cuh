@@ -12,46 +12,32 @@ template <const int BLOCKSIZE>
 __global__ void sgemm_shared_mem_block(int M, int N, int K, float alpha,
                                        const float *A, const float *B,
                                        float beta, float *C) {
-  // the output block that we want to compute in this threadblock
-  const uint cRow = blockIdx.x;
-  const uint cCol = blockIdx.y;
+  int t_x = threadIdx.x / BLOCKSIZE;
+  int t_y = threadIdx.x % BLOCKSIZE;
 
-  // allocate buffer for current block in fast shared mem
-  // shared mem is shared between all threads in a block
-  __shared__ float As[BLOCKSIZE * BLOCKSIZE];
-  __shared__ float Bs[BLOCKSIZE * BLOCKSIZE];
+  int c_x = blockIdx.x * BLOCKSIZE + t_x;
+  int c_y = blockIdx.y * BLOCKSIZE + t_y;
 
-  // the inner row & col that we're accessing in this thread
-  const uint threadCol = threadIdx.x % BLOCKSIZE;
-  const uint threadRow = threadIdx.x / BLOCKSIZE;
-
-  // advance pointers to the starting positions
-  A += cRow * BLOCKSIZE * K;                    // row=cRow, col=0
-  B += cCol * BLOCKSIZE;                        // row=0, col=cCol
-  C += cRow * BLOCKSIZE * N + cCol * BLOCKSIZE; // row=cRow, col=cCol
-
+  __shared__ float shm_A[BLOCKSIZE * BLOCKSIZE];
+  __shared__ float shm_B[BLOCKSIZE * BLOCKSIZE];
   float tmp = 0.0;
-  for (int bkIdx = 0; bkIdx < K; bkIdx += BLOCKSIZE) {
-    // Have each thread load one of the elements in A & B
-    // Make the threadCol (=threadIdx.x) the consecutive index
-    // to allow global memory access coalescing
-    As[threadRow * BLOCKSIZE + threadCol] = A[threadRow * K + threadCol];
-    Bs[threadRow * BLOCKSIZE + threadCol] = B[threadRow * N + threadCol];
+  
+  for(int k = 0; k < K; k += BLOCKSIZE) {
+    // C_blk[blk_x][blk_y] = sum(A_blk[blk_x][blk_k] @ B[blk_k][blk_y])
 
-    // block threads in this block until cache is fully populated
+    // 1. Fill shm A and B
+    shm_A[t_x * BLOCKSIZE + t_y] = A[c_x * K + (t_y + k)];
+    shm_B[t_x * BLOCKSIZE + t_y] = B[(t_x + k) * N + c_y];
+
     __syncthreads();
-    A += BLOCKSIZE;
-    B += BLOCKSIZE * N;
 
-    // execute the dotproduct on the currently cached block
-    for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx) {
-      tmp += As[threadRow * BLOCKSIZE + dotIdx] *
-             Bs[dotIdx * BLOCKSIZE + threadCol];
+    // 2. matmul shm A and B
+    for(int i = 0; i < BLOCKSIZE; i++) {
+      tmp += shm_A[t_x * BLOCKSIZE + i] * shm_B[i * BLOCKSIZE + t_y];
     }
-    // need to sync again at the end, to avoid faster threads
-    // fetching the next block into the cache before slower threads are done
+
     __syncthreads();
   }
-  C[threadRow * N + threadCol] =
-      alpha * tmp + beta * C[threadRow * N + threadCol];
+
+  C[c_x * N + c_y] = alpha * tmp + beta * C[c_x * N + c_y];
 }

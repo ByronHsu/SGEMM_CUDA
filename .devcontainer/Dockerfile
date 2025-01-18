@@ -15,8 +15,9 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -
 # Add conda to path
 ENV PATH=/opt/conda/bin:$PATH
 
-# Initialize conda in bash
-RUN conda init bash
+# Initialize conda in bash and zsh
+RUN conda init bash && \
+    conda init zsh
 
 # Install NVIDIA Container Toolkit
 RUN apt-get update && apt-get install -y \
@@ -29,6 +30,8 @@ RUN apt-get update && apt-get install -y \
     git-core \
     curl \
     fonts-powerline \
+    sudo \
+    vim \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Oh My Zsh

@@ -5,7 +5,7 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
-	"runArgs": ["--gpus=all"],
+	"runArgs": ["--gpus=all", "--cap-add=SYS_ADMIN"],
 	
 	"customizations": {
 		"vscode": {
